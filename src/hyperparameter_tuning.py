@@ -5,6 +5,7 @@ from prophet.diagnostics import cross_validation, performance_metrics
 from sklearn.model_selection import ParameterGrid
 import traceback # Import traceback for more detailed error logging
 import logging
+import concurrent.futures
 
 # Set up logger
 logger = logging.getLogger('hyperparameter_tuning')
@@ -82,9 +83,102 @@ def get_optimized_param_grid(time_series_df=None):
         
     return param_grid
 
+def evaluate_params(params, train_df, prophet_holidays, initial_period, period_interval, cv_horizon, 
+                    weather_regressors, use_lag_feature, rolling_window):
+    """
+    Evaluate a single parameter combination and return the results.
+    
+    Args:
+        params (dict): Parameter combination to evaluate
+        train_df (pd.DataFrame): Training data
+        prophet_holidays (pd.DataFrame): Holiday data for Prophet
+        initial_period (str): Initial training period
+        period_interval (str): Period interval for CV
+        cv_horizon (str): Forecast horizon for CV
+        weather_regressors (list): List of weather regressor columns
+        use_lag_feature (bool): Whether to use lagged target as regressor
+        rolling_window (int): Rolling window size for metrics calculation
+        
+    Returns:
+        dict: Dictionary with evaluation results
+    """
+    try:
+        # Create Prophet model with current parameters
+        prophet_kwargs = {k: v for k, v in params.items()}
+        m_tune = Prophet(
+            weekly_seasonality=True,
+            yearly_seasonality=True,
+            daily_seasonality=False,
+            holidays=prophet_holidays,
+            **prophet_kwargs
+        )
+        
+        # Add regressors dynamically based on presence in train_df
+        if 'Promo_discount_perc' in train_df.columns:
+            m_tune.add_regressor('Promo_discount_perc')
+        if 'is_promo' in train_df.columns:
+            m_tune.add_regressor('is_promo')
+        if 'stock' in train_df.columns:
+            m_tune.add_regressor('stock')
+            
+        # Add weather regressors
+        for reg in weather_regressors:
+            if reg in train_df.columns:
+                m_tune.add_regressor(reg)
+                
+        # Add lag feature if requested and available
+        if use_lag_feature and 'y_lag1' in train_df.columns:
+            m_tune.add_regressor('y_lag1')
+        
+        # Fit the model and run cross-validation
+        m_tune.fit(train_df)
+        df_cv = cross_validation(
+            m_tune,
+            initial=initial_period,
+            period=period_interval,
+            horizon=cv_horizon,
+            parallel="processes"  # Ensure parallel processing
+        )
+        
+        # Calculate performance metrics
+        df_p = performance_metrics(df_cv, rolling_window=rolling_window)
+        mae = df_p['mae'].values[0]
+        rmse = df_p['rmse'].values[0]
+        smape_val = _smape(df_cv['y'], df_cv['yhat'])
+        
+        # Return results
+        result_entry = {
+            'params': str(params),
+            'mae': mae,
+            'rmse': rmse,
+            'smape': smape_val
+        }
+        
+        # Add individual parameter values for easier analysis
+        for k, v in params.items():
+            result_entry[k] = v
+            
+        return result_entry, None  # Return result and no error
+    
+    except Exception as e:
+        error_msg = f"Error during CV for params {params}: {e}"
+        result_entry = {
+            'params': str(params),
+            'mae': float('inf'),
+            'rmse': float('inf'),
+            'smape': float('inf'),
+            'error': str(e)
+        }
+        
+        # Add individual parameter values
+        for k, v in params.items():
+            result_entry[k] = v
+            
+        return result_entry, error_msg  # Return result and error message
+
 def tune_hyperparameters(train_df, prophet_holidays, param_grid=None, initial_period=None, 
                          period_interval='4 W', cv_horizon='4 W', weather_regressors=None, 
-                         use_lag_feature=True, rolling_window=1, optimize_param_grid=True):
+                         use_lag_feature=True, rolling_window=1, optimize_param_grid=True, max_workers=4):
     """
     Performs hyperparameter tuning using Prophet's cross-validation.
 
@@ -101,6 +195,7 @@ def tune_hyperparameters(train_df, prophet_holidays, param_grid=None, initial_pe
         use_lag_feature (bool): Whether to include 'y_lag1' as a regressor.
         rolling_window (int): Rolling window size for calculating performance metrics.
         optimize_param_grid (bool): Whether to optimize parameter grid based on data characteristics.
+        max_workers (int): Number of worker processes for parallel grid search.
 
     Returns:
         tuple: (best_params, df_cv_results)
@@ -135,117 +230,97 @@ def tune_hyperparameters(train_df, prophet_holidays, param_grid=None, initial_pe
     # Create parameter grid
     grid = ParameterGrid(param_grid)
     all_params = list(grid)
-    logger.info(f"Evaluating {len(all_params)} parameter combinations...")
+    num_combinations = len(all_params)
+    logger.info(f"Evaluating {num_combinations} parameter combinations in parallel using {max_workers} workers")
     
-    # Track best parameters
-    best_params = None
-    best_mae = float('inf')
-    best_smape = float('inf')
-    best_mae_at_best_smape = float('inf')
+    # Initialize results list
     results_list = []
-
-    # Go through all parameter combinations
-    for i, params in enumerate(all_params):
-        logger.info(f"  Testing params {i+1}/{len(all_params)}: {params}")
-        try:
-            # Create Prophet model with current parameters
-            prophet_kwargs = {k: v for k, v in params.items()}
-            m_tune = Prophet(
-                weekly_seasonality=True,
-                yearly_seasonality=True,
-                daily_seasonality=False,
-                holidays=prophet_holidays,
-                **prophet_kwargs
-            )
-
-            # Add regressors dynamically based on presence in train_df
-            if 'Promo_discount_perc' in train_df.columns:
-                m_tune.add_regressor('Promo_discount_perc')
-            if 'is_promo' in train_df.columns:
-                m_tune.add_regressor('is_promo')
-
-            # Add weather regressors
-            for reg in weather_regressors:
-                if reg in train_df.columns:
-                    m_tune.add_regressor(reg)
-
-            # Add lag feature if requested and available
-            if use_lag_feature and 'y_lag1' in train_df.columns:
-                m_tune.add_regressor('y_lag1')
-            elif use_lag_feature:
-                logger.warning(f"y_lag1 specified but not found in train_df for params {params}.")
-
-            # Fit the model and run cross-validation
-            m_tune.fit(train_df)
-            df_cv = cross_validation(
-                m_tune,
-                initial=initial_period,
-                period=period_interval,
-                horizon=cv_horizon,
-                parallel="processes"  # Ensure parallel processing
-            )
-
-            # Calculate performance metrics
-            df_p = performance_metrics(df_cv, rolling_window=rolling_window)
-            mae = df_p['mae'].values[0]
-            rmse = df_p['rmse'].values[0]
-            smape_val = _smape(df_cv['y'], df_cv['yhat'])
-
-            # Store results
-            result_entry = {
-                'params': str(params),
-                'mae': mae,
-                'rmse': rmse,
-                'smape': smape_val
-            }
-            
-            # Add individual parameter values for easier analysis
-            for k, v in params.items():
-                result_entry[k] = v
+    
+    # Determine how many workers to use (don't use more than needed)
+    effective_workers = min(max_workers, num_combinations)
+    
+    # Run grid search in parallel
+    with concurrent.futures.ProcessPoolExecutor(max_workers=effective_workers) as executor:
+        # Create a list of futures
+        futures = [
+            executor.submit(
+                evaluate_params, 
+                params, 
+                train_df, 
+                prophet_holidays, 
+                initial_period, 
+                period_interval, 
+                cv_horizon, 
+                weather_regressors, 
+                use_lag_feature, 
+                rolling_window
+            ) 
+            for params in all_params
+        ]
+        
+        # Process results as they complete
+        for i, future in enumerate(concurrent.futures.as_completed(futures)):
+            try:
+                result, error = future.result()
+                results_list.append(result)
                 
-            results_list.append(result_entry)
-            
-            logger.info(f"    Params: {params} -> MAE: {mae:.2f}, RMSE: {rmse:.2f}, sMAPE: {smape_val:.4f}")
-
-            # Track best parameters based on sMAPE
-            if smape_val < best_smape:
-                best_smape = smape_val
-                best_mae_at_best_smape = mae
-                best_params = params
-                logger.info(f"    *** New best sMAPE found: {best_smape:.4f} (MAE: {best_mae_at_best_smape:.2f}) ***")
-
-            # Also track best MAE for reference
-            if mae < best_mae:
-                best_mae = mae
-
-        except Exception as e:
-            logger.error(f"    Error during CV for params {params}: {e}")
-            # Log traceback for detailed debugging
-            logger.debug(traceback.format_exc())
-            # Add failed parameters to results with infinity metrics
-            result_entry = {
-                'params': str(params),
-                'mae': float('inf'),
-                'rmse': float('inf'),
-                'smape': float('inf'),
-                'error': str(e)
-            }
-            for k, v in params.items():
-                result_entry[k] = v
-            results_list.append(result_entry)
-
-    # Report results
-    logger.info(f"\nHyperparameter tuning finished.")
-    if best_params:
-        logger.info(f"Best parameters found (based on sMAPE={best_smape:.4f}): {best_params}")
-        logger.info(f"  (MAE associated with best sMAPE: {best_mae_at_best_smape:.2f})")
-        logger.info(f"  (Best MAE found during tuning was: {best_mae:.2f})")
-    else:
-        logger.warning("No best parameters found, CV might have failed for all combinations.")
-        best_params = {}  # Return empty dict to indicate failure or use defaults
-
-    # Convert results to DataFrame and save
+                # Log progress
+                if (i+1) % 5 == 0 or i+1 == num_combinations:
+                    logger.info(f"Progress: {i+1}/{num_combinations} parameter combinations evaluated ({(i+1)/num_combinations*100:.1f}%)")
+                
+                # Log results
+                if error:
+                    logger.error(error)
+                else:
+                    params_str = result['params']
+                    mae = result['mae']
+                    rmse = result['rmse']
+                    smape = result['smape']
+                    logger.info(f"  Params: {params_str} -> MAE: {mae:.2f}, RMSE: {rmse:.2f}, sMAPE: {smape:.4f}")
+                    
+            except Exception as e:
+                logger.error(f"Error processing future: {e}")
+    
+    # Convert results to DataFrame
     df_cv_results = pd.DataFrame(results_list)
+    
+    # Find best parameters based on sMAPE
+    if not df_cv_results.empty and 'smape' in df_cv_results.columns:
+        # Filter out rows with infinite or NaN metrics
+        valid_results = df_cv_results[pd.notnull(df_cv_results['smape']) & ~np.isinf(df_cv_results['smape'])]
+        
+        if not valid_results.empty:
+            # Get best parameters based on sMAPE
+            best_idx = valid_results['smape'].idxmin()
+            best_row = valid_results.loc[best_idx]
+            
+            # Extract original parameters
+            best_params = {
+                'changepoint_prior_scale': best_row['changepoint_prior_scale'],
+                'seasonality_prior_scale': best_row['seasonality_prior_scale'],
+                'holidays_prior_scale': best_row['holidays_prior_scale'],
+                'seasonality_mode': best_row['seasonality_mode'],
+                'changepoint_range': best_row['changepoint_range']
+            }
+            
+            best_smape = best_row['smape']
+            best_mae = best_row['mae']
+            
+            logger.info(f"\nBest parameters found (based on sMAPE={best_smape:.4f}): {best_params}")
+            logger.info(f"  (MAE associated with best sMAPE: {best_mae:.2f})")
+            
+            # Find best MAE for reference
+            best_mae_idx = valid_results['mae'].idxmin()
+            best_mae_value = valid_results.loc[best_mae_idx, 'mae']
+            logger.info(f"  (Best MAE found during tuning was: {best_mae_value:.2f})")
+        else:
+            logger.warning("No valid results found (all had NaN or infinite metrics)")
+            best_params = {}
+    else:
+        logger.warning("No valid results found in the hyperparameter tuning")
+        best_params = {}
+    
+    # Save results
     try:
         output_file = "output/cv_tuning_results.csv"
         df_cv_results.to_csv(output_file, index=False)

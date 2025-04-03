@@ -196,7 +196,8 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         aggregation_rules = {
             'y': 'sum', 
             'Promo_discount_perc': 'mean', 
-            'is_promo': 'max'
+            'is_promo': 'max',
+            'stock': 'mean'  # Use mean for stock as specified
         }
         
         # Add weather aggregations if columns exist
@@ -289,7 +290,8 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
             weather_regressors=weather_regressors,
             use_lag_feature=True,
             rolling_window=3,  # Increase rolling window for smoother metrics
-            optimize_param_grid=True  # Use data-driven parameter grid optimization
+            optimize_param_grid=True,  # Use data-driven parameter grid optimization
+            max_workers=4  # Use 4 workers for parallel hyperparameter tuning
         )
         
         # Save CV results
@@ -310,6 +312,7 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         # Add regressors to the final model
         final_model.add_regressor('Promo_discount_perc')
         final_model.add_regressor('is_promo')
+        final_model.add_regressor('stock')  # Add stock as a regressor
         for reg in weather_regressors:
             if reg in train_df.columns:
                 final_model.add_regressor(reg)
@@ -448,7 +451,7 @@ def generate_forecast_for_plotting(model, train_df, validation_df=None, weather_
         if validation_df is not None and not validation_df.empty:
             logger.info("Using actual promo values from validation data for forecasting")
             # Get promo columns from validation data
-            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo']]
+            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo', 'stock']]
             
             if promo_cols:
                 # Merge validation data for promo values
@@ -472,6 +475,7 @@ def generate_forecast_for_plotting(model, train_df, validation_df=None, weather_
             logger.info("No validation data available, using assumptions for promo values")
             plotting_future_regressors_df['Promo_discount_perc'] = 5.0  # Assumption
             plotting_future_regressors_df['is_promo'] = 1.0  # Assumption
+            plotting_future_regressors_df['stock'] = train_df['stock'].mean()  # Use mean stock as assumption
         
         # Populate future weather
         df_weather_fcst_plotting = fetch_forecast_weather_data(weather_lat, weather_lon, forecast_days=35)
@@ -605,7 +609,7 @@ def generate_future_predictions(model, train_df, validation_df=None, weather_lat
         if validation_df is not None and not validation_df.empty:
             logger.info("Using actual promo values from validation data for future predictions")
             # Get promo columns from validation data
-            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo']]
+            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo', 'stock']]
             
             if promo_cols:
                 # Merge validation data for promo values
@@ -628,6 +632,7 @@ def generate_future_predictions(model, train_df, validation_df=None, weather_lat
             logger.info("No validation data available, using assumptions for promo values")
             future_regressors_df['Promo_discount_perc'] = 5.0  # Assumption
             future_regressors_df['is_promo'] = 1.0  # Assumption
+            future_regressors_df['stock'] = train_df['stock'].mean()  # Use mean stock as assumption
         
         # Populate future weather
         df_weather_fcst = fetch_forecast_weather_data(weather_lat, weather_lon, forecast_days=forecast_periods*7)

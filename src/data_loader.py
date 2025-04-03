@@ -19,7 +19,7 @@ def fetch_sales_data(client: bigquery.Client, project_id: str, dataset_id: str, 
         end_date (str): End date in YYYY-MM-DD format
         
     Returns:
-        pd.DataFrame: DataFrame with ds, y, Promo_discount_perc, is_promo columns
+        pd.DataFrame: DataFrame with ds, y, Promo_discount_perc, is_promo, stock columns
     """
     # Ensure date parameters are in YYYY-MM-DD format
     try:
@@ -29,7 +29,7 @@ def fetch_sales_data(client: bigquery.Client, project_id: str, dataset_id: str, 
             end_date = pd.to_datetime(end_date).strftime('%Y-%m-%d')
     except Exception as e:
         print(f"Error formatting date parameters: {e}")
-        return pd.DataFrame(columns=['ds', 'y', 'Promo_discount_perc', 'is_promo'])
+        return pd.DataFrame(columns=['ds', 'y', 'Promo_discount_perc', 'is_promo', 'stock'])
     
     # Updated table name
     sales_table_id = "distributor_sales_frozen_sample_1" 
@@ -43,7 +43,8 @@ def fetch_sales_data(client: bigquery.Client, project_id: str, dataset_id: str, 
             WHEN Promo_discount_perc IS NOT NULL AND Promo_discount_perc > 0
             THEN 1 
             ELSE 0 
-        END AS is_promo                    -- Binary indicator based on discount > 0
+        END AS is_promo,                    -- Binary indicator based on discount > 0
+        COALESCE(stock, 0) AS stock         -- Stock level, default to 0 if NULL
     FROM
         `{project_id}.{dataset_id}.{sales_table_id}`
     WHERE
@@ -80,8 +81,11 @@ def fetch_sales_data(client: bigquery.Client, project_id: str, dataset_id: str, 
         
         # Ensure 'Promo_discount_perc' is float, handling potential NAs introduced by COALESCE if source had non-numeric
         df['Promo_discount_perc'] = pd.to_numeric(df['Promo_discount_perc'], errors='coerce').fillna(0).astype(float)
+        
+        # Ensure 'stock' is float
+        df['stock'] = pd.to_numeric(df['stock'], errors='coerce').fillna(0).astype(float)
 
-        return df[['ds', 'y', 'Promo_discount_perc', 'is_promo']] # Return only needed cols
+        return df[['ds', 'y', 'Promo_discount_perc', 'is_promo', 'stock']] # Return all needed cols
     except Exception as e:
         print(f"Error fetching sales data: {e}")
-        return pd.DataFrame(columns=['ds', 'y', 'Promo_discount_perc', 'is_promo']) # Return empty df with correct columns 
+        return pd.DataFrame(columns=['ds', 'y', 'Promo_discount_perc', 'is_promo', 'stock']) # Return empty df with correct columns 
