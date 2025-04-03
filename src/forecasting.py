@@ -196,8 +196,7 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         aggregation_rules = {
             'y': 'sum', 
             'Promo_discount_perc': 'mean', 
-            'is_promo': 'max',
-            'stock': 'mean'  # Use mean for stock as specified
+            'is_promo': 'max'
         }
         
         # Add weather aggregations if columns exist
@@ -312,7 +311,6 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         # Add regressors to the final model
         final_model.add_regressor('Promo_discount_perc')
         final_model.add_regressor('is_promo')
-        final_model.add_regressor('stock')  # Add stock as a regressor
         for reg in weather_regressors:
             if reg in train_df.columns:
                 final_model.add_regressor(reg)
@@ -325,7 +323,7 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         final_model.fit(train_df)
         
         # Save the final model
-        model_filename = f"{output_dir}/final_prophet_model_{sku_id}.pkl"
+        model_filename = f"{output_dir}/{unit}_{channel}_{sku_id}.pkl"
         with open(model_filename, 'wb') as f:
             pickle.dump(final_model, f)
         
@@ -351,7 +349,7 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         )
         
         if forecast_output is not None and not forecast_output.empty:
-            forecast_output.to_csv(f"{output_dir}/weekly_forecast_{sku_id}.csv", index=False)
+            forecast_output.to_csv(f"{output_dir}/weekly_forecast_{unit}_{channel}_{sku_id}.csv", index=False)
         
         # 11. Evaluate forecast
         if not validation_df.empty and not forecast_output.empty:
@@ -381,14 +379,16 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
                 logger.info(f"Validation Metrics: MAE={mae:.2f}, RMSE={rmse:.2f}, sMAPE={smape:.4f}, WAPE={wape:.4f}")
                 
                 # Save comparison data
-                comparison_df.to_csv(f"{output_dir}/forecast_vs_actuals_{sku_id}.csv", index=False)
+                comparison_df.to_csv(f"{output_dir}/forecast_vs_actuals_{unit}_{channel}_{sku_id}.csv", index=False)
                 
                 # Generate visualization
                 if len(comparison_df) > 0:
                     generate_validation_plot(
                         comparison_df=comparison_df,
                         sku_id=sku_id,
-                        output_dir=output_dir
+                        output_dir=output_dir,
+                        unit=unit,
+                        channel=channel
                     )
             
             # Generate component plots if forecast_for_plotting exists
@@ -398,7 +398,9 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
                     forecast=forecast_for_plotting,
                     sku_id=sku_id,
                     output_dir=output_dir,
-                    validation_df=validation_df
+                    validation_df=validation_df,
+                    unit=unit,
+                    channel=channel
                 )
         
         result['Status'] = 'Success'
@@ -451,7 +453,7 @@ def generate_forecast_for_plotting(model, train_df, validation_df=None, weather_
         if validation_df is not None and not validation_df.empty:
             logger.info("Using actual promo values from validation data for forecasting")
             # Get promo columns from validation data
-            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo', 'stock']]
+            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo']]
             
             if promo_cols:
                 # Merge validation data for promo values
@@ -475,7 +477,6 @@ def generate_forecast_for_plotting(model, train_df, validation_df=None, weather_
             logger.info("No validation data available, using assumptions for promo values")
             plotting_future_regressors_df['Promo_discount_perc'] = 5.0  # Assumption
             plotting_future_regressors_df['is_promo'] = 1.0  # Assumption
-            plotting_future_regressors_df['stock'] = train_df['stock'].mean()  # Use mean stock as assumption
         
         # Populate future weather
         df_weather_fcst_plotting = fetch_forecast_weather_data(weather_lat, weather_lon, forecast_days=35)
@@ -609,7 +610,7 @@ def generate_future_predictions(model, train_df, validation_df=None, weather_lat
         if validation_df is not None and not validation_df.empty:
             logger.info("Using actual promo values from validation data for future predictions")
             # Get promo columns from validation data
-            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo', 'stock']]
+            promo_cols = [col for col in validation_df.columns if col in ['Promo_discount_perc', 'is_promo']]
             
             if promo_cols:
                 # Merge validation data for promo values
@@ -632,7 +633,6 @@ def generate_future_predictions(model, train_df, validation_df=None, weather_lat
             logger.info("No validation data available, using assumptions for promo values")
             future_regressors_df['Promo_discount_perc'] = 5.0  # Assumption
             future_regressors_df['is_promo'] = 1.0  # Assumption
-            future_regressors_df['stock'] = train_df['stock'].mean()  # Use mean stock as assumption
         
         # Populate future weather
         df_weather_fcst = fetch_forecast_weather_data(weather_lat, weather_lon, forecast_days=forecast_periods*7)
@@ -728,7 +728,7 @@ def generate_future_predictions(model, train_df, validation_df=None, weather_lat
         logger.error(f"Error generating future predictions: {e}")
         return None
 
-def generate_validation_plot(comparison_df, sku_id, output_dir):
+def generate_validation_plot(comparison_df, sku_id, output_dir, unit=None, channel=None):
     """Generate plot comparing actuals vs forecast for validation period"""
     try:
         fig = go.Figure()
@@ -771,25 +771,28 @@ def generate_validation_plot(comparison_df, sku_id, output_dir):
         ))
         
         fig.update_layout(
-            title=f'Weekly Actual Sales vs. Forecast (Validation) - SKU: {sku_id}',
+            title=f'Weekly Actual Sales vs. Forecast (Validation) - SKU: {sku_id}, Channel: {channel}, Unit: {unit}',
             xaxis_title='Week (Sunday)',
             yaxis_title='Sales Quantity',
             legend_title="Legend"
         )
         
-        fig.write_html(f"{output_dir}/validation_forecast_vs_actuals_{sku_id}.html")
-        logger.info(f"Validation plot saved to {output_dir}/validation_forecast_vs_actuals_{sku_id}.html")
+        file_prefix = f"{unit}_{channel}_{sku_id}" if unit and channel else sku_id
+        fig.write_html(f"{output_dir}/validation_forecast_vs_actuals_{file_prefix}.html")
+        logger.info(f"Validation plot saved to {output_dir}/validation_forecast_vs_actuals_{file_prefix}.html")
         
     except Exception as e:
         logger.error(f"Error generating validation plot: {e}")
 
-def generate_component_plots(model, forecast, sku_id, output_dir, validation_df):
+def generate_component_plots(model, forecast, sku_id, output_dir, validation_df, unit=None, channel=None):
     """Generate Prophet component plots"""
     try:
         # Component plot
         fig_comp = model.plot_components(forecast)
-        plt.suptitle(f'Prophet Model Components - SKU: {sku_id}', y=1.02)
-        fig_comp.savefig(f"{output_dir}/prophet_model_components_{sku_id}.png")
+        plt.suptitle(f'Prophet Model Components - SKU: {sku_id}, Channel: {channel}, Unit: {unit}', y=1.02)
+        
+        file_prefix = f"{unit}_{channel}_{sku_id}" if unit and channel else sku_id
+        fig_comp.savefig(f"{output_dir}/prophet_model_components_{file_prefix}.png")
         plt.close(fig_comp)
         
         # Full history + forecast plot
@@ -802,10 +805,10 @@ def generate_component_plots(model, forecast, sku_id, output_dir, validation_df)
                        label=f'Train/Validation Split ({split_date.date()})')
             plt.legend()
             
-        plt.title(f'Full History and Forecast - SKU: {sku_id}')
+        plt.title(f'Full History and Forecast - SKU: {sku_id}, Channel: {channel}, Unit: {unit}')
         plt.xlabel('Date')
         plt.ylabel('Sales Quantity (y)')
-        fig_full.savefig(f"{output_dir}/full_history_forecast_{sku_id}.png")
+        fig_full.savefig(f"{output_dir}/full_history_forecast_{file_prefix}.png")
         plt.close(fig_full)
         
         logger.info(f"Component plots saved to {output_dir}")

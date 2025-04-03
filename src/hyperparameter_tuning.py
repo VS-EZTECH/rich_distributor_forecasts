@@ -118,8 +118,6 @@ def evaluate_params(params, train_df, prophet_holidays, initial_period, period_i
             m_tune.add_regressor('Promo_discount_perc')
         if 'is_promo' in train_df.columns:
             m_tune.add_regressor('is_promo')
-        if 'stock' in train_df.columns:
-            m_tune.add_regressor('stock')
             
         # Add weather regressors
         for reg in weather_regressors:
