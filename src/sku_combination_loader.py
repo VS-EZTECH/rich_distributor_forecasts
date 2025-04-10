@@ -1,47 +1,96 @@
 import pandas as pd
 import os
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+import logging
 
-def load_sku_combinations(file_path):
+logger = logging.getLogger(__name__)
+
+def load_sku_combinations_from_gsheet(creds_path, sheet_id, sheet_name):
     """
-    Load SKU-Channel-Unit combinations from a CSV file.
-    
+    Load SKU-Channel-Unit combinations from a Google Sheet.
+
     Args:
-        file_path (str): Path to the CSV file containing the combinations
-        
+        creds_path (str): Path to the service account JSON key file.
+        sheet_id (str): The Google Sheet ID.
+        sheet_name (str): The name of the tab within the sheet.
+
     Returns:
         pd.DataFrame: DataFrame with columns SKU_ID, Channel, Unit
-        
+
     Raises:
-        FileNotFoundError: If the CSV file does not exist
-        ValueError: If the CSV file doesn't contain required columns
+        FileNotFoundError: If the credentials file does not exist.
+        Exception: If there's an error connecting to or reading from Google Sheets.
+        ValueError: If the sheet doesn't contain the required columns.
     """
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Combinations file not found: {file_path}")
-    
+    if not os.path.exists(creds_path):
+        raise FileNotFoundError(f"Service account credentials file not found: {creds_path}")
+
     try:
-        df = pd.read_csv(file_path)
-        # Check for required columns
-        required_columns = ['SKU_ID', 'Channel', 'Unit']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        
+        # Define the scope
+        SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+
+        # Authenticate using the service account
+        creds = service_account.Credentials.from_service_account_file(
+            creds_path, scopes=SCOPES)
+
+        # Build the service client
+        service = build('sheets', 'v4', credentials=creds)
+
+        # Call the Sheets API
+        sheet = service.spreadsheets()
+        result = sheet.values().get(spreadsheetId=sheet_id,
+                                    range=sheet_name).execute()
+        values = result.get('values', [])
+
+        if not values:
+            logger.warning(f"No data found in Google Sheet '{sheet_name}'.")
+            return pd.DataFrame(columns=['SKU_ID', 'Channel', 'Unit']) # Return empty DataFrame
+
+        # Assume the first row is the header
+        header = values[0]
+        data = values[1:]
+
+        df = pd.DataFrame(data, columns=header)
+
+        # Check for required columns (case-insensitive check)
+        required_columns_map = {'sku_id': 'SKU_ID', 'channel': 'Channel', 'unit': 'Unit'}
+        actual_columns_lower = {col.lower().strip(): col for col in df.columns}
+        rename_map = {}
+        missing_columns = []
+
+        for req_col_lower, req_col_target in required_columns_map.items():
+            if req_col_lower in actual_columns_lower:
+                rename_map[actual_columns_lower[req_col_lower]] = req_col_target
+            else:
+                missing_columns.append(req_col_target)
+
         if missing_columns:
-            raise ValueError(f"Missing required columns in combinations file: {missing_columns}")
-        
+            raise ValueError(f"Missing required columns in Google Sheet '{sheet_name}': {missing_columns}")
+
+        # Rename columns to the desired format
+        df = df.rename(columns=rename_map)
+
+        # Keep only the required columns
+        df = df[['SKU_ID', 'Channel', 'Unit']]
+
+
         # Ensure SKU_ID is string type
         df['SKU_ID'] = df['SKU_ID'].astype(str)
         # Trim whitespace from string columns
-        for col in required_columns:
+        for col in ['SKU_ID', 'Channel', 'Unit']:
             if df[col].dtype == 'object':
                 df[col] = df[col].str.strip()
-        
-        print(f"Loaded {len(df)} SKU-Channel-Unit combinations from {file_path}")
+
+        logger.info(f"Loaded {len(df)} SKU-Channel-Unit combinations from Google Sheet ID {sheet_id}, Tab '{sheet_name}'")
         return df
-    
+
+    except FileNotFoundError:
+        logger.error(f"Credentials file not found: {creds_path}")
+        raise
     except Exception as e:
-        if isinstance(e, FileNotFoundError) or isinstance(e, ValueError):
-            raise
-        else:
-            raise ValueError(f"Error loading combinations file: {e}")
+        logger.error(f"Error loading combinations from Google Sheet ID {sheet_id}, Tab '{sheet_name}': {e}")
+        raise ValueError(f"Error loading combinations from Google Sheet: {e}")
 
 def filter_combinations(df, max_combinations=None, specific_sku=None, specific_unit=None, specific_channel=None):
     """

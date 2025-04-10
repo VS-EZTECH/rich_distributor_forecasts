@@ -8,7 +8,7 @@ import concurrent.futures
 import traceback
 
 # Import the combination loader functions
-from src.sku_combination_loader import load_sku_combinations, filter_combinations
+from src.sku_combination_loader import filter_combinations, load_sku_combinations_from_gsheet
 
 # Import the main processing function
 from src.forecasting import process_combination
@@ -28,9 +28,14 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run the forecasting pipeline for multiple SKU-Channel-Unit combinations.")
     
-    parser.add_argument("--combinations_file", type=str, required=True,
-                      help="Path to the CSV file containing the SKU-Channel-Unit combinations.")
-    
+    # Input source arguments (Google Sheet only)
+    parser.add_argument("--combinations_gsheet_id", type=str, required=True,
+                           help="Google Sheet ID for the combinations.")
+    parser.add_argument("--combinations_gsheet_name", type=str, default="Target",
+                      help="Name of the tab in the Google Sheet (default: Target).")
+    parser.add_argument("--gsheet_creds_path", type=str, default=".secrets/eztech-442521-sheets.json",
+                      help="Path to the Google Sheets service account credentials JSON file (default: .secrets/eztech-442521-sheets.json).")
+
     parser.add_argument("--output_dir", type=str, default="output",
                       help="Base directory for outputs.")
     
@@ -170,11 +175,16 @@ def main():
     # Log the start of the process
     start_time = datetime.now()
     logger.info(f"Started run_all_skus.py at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Using combinations file: {args.combinations_file}")
     
-    # Load and filter combinations
+    # Load and filter combinations from Google Sheet
     try:
-        combinations_df = load_sku_combinations(args.combinations_file)
+        logger.info(f"Loading combinations from Google Sheet ID: {args.combinations_gsheet_id}, Tab: {args.combinations_gsheet_name}")
+        combinations_df = load_sku_combinations_from_gsheet(
+            creds_path=args.gsheet_creds_path,
+            sheet_id=args.combinations_gsheet_id,
+            sheet_name=args.combinations_gsheet_name
+        )
+
         filtered_df = filter_combinations(
             combinations_df,
             max_combinations=args.max_combinations,
