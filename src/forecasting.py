@@ -318,9 +318,11 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         logger.info(f"Training final model with best params: {best_params}")
         final_model = Prophet(
             holidays=prophet_holidays,
-            changepoint_prior_scale=best_params['cps'],
-            holidays_prior_scale=best_params['hps'],
-            seasonality_prior_scale=best_params['sps'],
+            changepoint_prior_scale=best_params['changepoint_prior_scale'],
+            holidays_prior_scale=best_params['holidays_prior_scale'],
+            seasonality_prior_scale=best_params['seasonality_prior_scale'],
+            seasonality_mode=best_params['seasonality_mode'],
+            changepoint_range=best_params['changepoint_range'],
             weekly_seasonality=True,  # Always assume weekly
             daily_seasonality=False, # Data is weekly
             yearly_seasonality=enable_yearly_seasonality # Dynamically set based on data duration
