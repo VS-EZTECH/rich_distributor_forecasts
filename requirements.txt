@@ -8,3 +8,6 @@ holidays==0.38
 requests>=2.28.0
 openmeteo-requests
 requests-cache
+google-api-python-client
+google-auth-oauthlib
+google-cloud-storage>=2.0.0,<3.0.0

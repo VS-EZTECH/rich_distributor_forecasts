@@ -11,6 +11,9 @@ import pickle
 import logging
 import traceback
 
+# Import storage client
+from google.cloud import storage
+
 # Import functions from other modules - fix the imports to reference src directory
 from src.data_loader import fetch_sales_data
 from src.weather_handler import fetch_weather_data, fetch_forecast_weather_data
@@ -332,11 +335,35 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         # Fit the final model
         final_model.fit(train_df)
         
-        # Save the final model
-        model_filename = f"{output_dir}/{unit}_{channel}_{sku_id}.pkl"
-        with open(model_filename, 'wb') as f:
+        # Save the final model locally
+        # Use a consistent naming convention that matches the target GCS structure
+        local_model_filename = f"{output_dir}/{unit}_{channel}_{sku_id}.pkl"
+        with open(local_model_filename, 'wb') as f:
             pickle.dump(final_model, f)
+        logger.info(f"Saved final model locally to {local_model_filename}")
         
+        # --- Upload model to GCS --- 
+        try:
+            gcs_client = storage.Client()
+            bucket_name = "eztech-442521-rich-distributor-forecast-models" # Use the correct bucket name
+            # Ensure correct GCS path structure: Unit/Channel/SKU_ID.pkl
+            destination_blob_name = f"{unit}/{channel}/{sku_id}.pkl"
+            
+            bucket = gcs_client.bucket(bucket_name)
+            blob = bucket.blob(destination_blob_name)
+            
+            blob.upload_from_filename(local_model_filename)
+            
+            logger.info(f"Successfully uploaded model to gs://{bucket_name}/{destination_blob_name}")
+            
+        except Exception as gcs_error:
+            logger.error(f"Failed to upload model to GCS: {gcs_error}")
+            # Decide if this should be a critical error or just a warning
+            # For now, log error but let the process continue if local save worked.
+            # If GCS upload is mandatory, uncomment the line below to raise the error
+            # raise gcs_error 
+        # --------------------------
+
         # 9. Generate forecast for plotting
         logger.info("Generating full forecast for plotting")
         forecast_for_plotting = generate_forecast_for_plotting(
