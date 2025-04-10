@@ -3,6 +3,7 @@ import argparse
 import pandas as pd
 from datetime import datetime
 from google.cloud import bigquery
+from google.oauth2 import service_account
 import logging
 import concurrent.futures
 import traceback
@@ -35,6 +36,10 @@ def parse_arguments():
                       help="Name of the tab in the Google Sheet (default: Target).")
     parser.add_argument("--gsheet_creds_path", type=str, default=".secrets/eztech-442521-sheets.json",
                       help="Path to the Google Sheets service account credentials JSON file (default: .secrets/eztech-442521-sheets.json).")
+
+    # Added BQ Creds Path argument
+    parser.add_argument("--bq_creds_path", type=str, default=".secrets/eztech-442521-bigquery.json",
+                      help="Path to the BigQuery service account credentials JSON file (default: .secrets/eztech-442521-bigquery.json).")
 
     parser.add_argument("--output_dir", type=str, default="output",
                       help="Base directory for outputs.")
@@ -80,12 +85,16 @@ def parse_arguments():
     
     return parser.parse_args()
 
-def initialize_bigquery_client(project_id):
-    """Initialize a BigQuery client."""
+def initialize_bigquery_client(project_id, credentials_path):
+    """Initialize a BigQuery client using service account credentials."""
     try:
-        client = bigquery.Client(project=project_id)
-        logger.info("BigQuery client initialized successfully.")
+        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+        client = bigquery.Client(project=project_id, credentials=credentials)
+        logger.info(f"BigQuery client initialized successfully using {credentials_path}.")
         return client
+    except FileNotFoundError:
+        logger.error(f"Error initializing BigQuery client: Credentials file not found at {credentials_path}")
+        return None
     except Exception as e:
         logger.error(f"Error initializing BigQuery client: {e}")
         return None
@@ -113,11 +122,16 @@ def run_single_combination(args, client, combination_row):
         local_client = client
         if local_client is None:
             try:
-                local_client = bigquery.Client(project=args.project_id)
-                logger.info(f"Initialized new BigQuery client for {sku_id}-{channel}-{unit}")
+                # Use credentials path here as well
+                credentials = service_account.Credentials.from_service_account_file(args.bq_creds_path)
+                local_client = bigquery.Client(project=args.project_id, credentials=credentials)
+                logger.info(f"Initialized new BigQuery client for {sku_id}-{channel}-{unit} using {args.bq_creds_path}")
+            except FileNotFoundError:
+                logger.error(f"Error initializing BigQuery client in worker process: Credentials file not found at {args.bq_creds_path}")
+                raise # Re-raise to stop this worker
             except Exception as client_err:
                 logger.error(f"Error initializing BigQuery client in worker process: {client_err}")
-                raise
+                raise # Re-raise to stop this worker
                 
         result = process_combination(
             client=local_client,
@@ -166,8 +180,8 @@ def main():
     # Create output directories
     create_output_directories(args.output_dir)
     
-    # Initialize BigQuery client
-    client = initialize_bigquery_client(args.project_id)
+    # Initialize BigQuery client - passing credentials path
+    client = initialize_bigquery_client(args.project_id, args.bq_creds_path)
     if client is None:
         logger.error("Failed to initialize BigQuery client. Exiting.")
         return

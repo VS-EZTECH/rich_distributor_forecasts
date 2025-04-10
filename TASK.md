@@ -151,10 +151,10 @@ This checklist tracks the tasks outlined in the project plan for the initial **s
 
 ## Phase 6: Pipeline Scaling (All SKU-Channel-Unit Combinations)
 
-*Objective: Adapt the single-SKU pipeline (from `src/forecasting_v1.py` and related modules) to run forecasts for all unique combinations of `SKU_ID`, `Channel`, and `Unit` provided in a user-specified CSV file, storing the performance metrics for each.*
+*Objective: Adapt the single-SKU pipeline (from `src/forecasting.py` and related modules) to run forecasts for all unique combinations of `SKU_ID`, `Channel`, and `Unit` provided in a **user-specified Google Sheet**, storing the performance metrics for each.*
 
 *   `[x]` **22. Load Combinations & Fetch Data:**
-    *   `[x]` **22a. Load Combinations:** Implement logic to load a user-provided CSV file (path specified via config or argument) containing `(SKU_ID, Channel, Unit)` combinations.
+    *   `[x]` **22a. Load Combinations:** Implement logic to load a user-provided **Google Sheet** (Sheet ID and Tab specified via arguments) containing `(SKU_ID, Channel, Unit)` combinations.
     *   `[x]` **22b. Fetch & Filter Data (Per Combination):** Modify `src/data_loader.py` or create logic in the main script (`run_all_skus.py`) to:
         *   Iterate through each row (`sku_id`, `channel`, `unit`) from the loaded combinations.
         *   For *each* combination, query `distributor_sales_frozen_sample_1` filtering by the *specific* `sku_id`, `channel`, `unit` AND `date >= '2023-01-01'`.
@@ -181,10 +181,10 @@ This checklist tracks the tasks outlined in the project plan for the initial **s
 *   `[x]` **25. Aggregate and Store Results:**
     *   `[x]` **25a. Initialize Collector:** Before the loop in `run_all_skus.py`, initialize a list or DataFrame to store results.
     *   `[x]` **25b. Collect Results:** Within the loop, after processing each combination, append a record including: `SKU_ID`, `Channel`, `Unit`, `min_date`, `max_date`, `Status` (e.g., 'Success', 'Skipped - Insufficient Data', 'Error: Model Fit Failed'), Evaluation Metrics (MAE, RMSE, WAPE, sMAPE if successful), Best Hyperparameters (if successful).
-    *   `[x]` **25c. Save Aggregated Results:** After the loop completes, save the collected results to a CSV file (e.g., `output/all_skus_validation_metrics.csv`).
+    *   `[x]` **25c. Save Aggregated Results:** After the loop completes, save the collected results to a CSV file (e.g., `output/all_skus_validation_metrics_*.csv`).
 
 *   `[x]` **26. Testing and Final Run:**
-    *   `[x]` **26a. Sample Test:** Test the entire `run_all_skus.py` pipeline using the user-provided CSV but initially filtered to only 3-5 diverse combinations.
+    *   `[x]` **26a. Sample Test:** Test the entire `run_all_skus.py` pipeline using the user-provided **Google Sheet** but initially filtered using `--max_combinations` (e.g., 1-5 combinations).
     *   `[x]` **26b. Debug:** Address any issues identified during the sample test.
-    *   `[x]` **26c. Full Execution:** Run `run_all_skus.py` for all combinations specified in the input CSV.
-    *   `[x]` **26d. Review Output:** Verify the contents and format of the final aggregated results file (`output/all_skus_validation_metrics.csv`).
+    *   `[x]` **26c. Full Execution:** Run `run_all_skus.py` for all combinations specified in the input **Google Sheet**.
+    *   `[x]` **26d. Review Output:** Verify the contents and format of the final aggregated results file (`output/all_skus_validation_metrics_*.csv`).

@@ -61,7 +61,7 @@ The solution employs individual time series models (one per combination) using F
 
 ## 4. Key Assumptions & Decisions
 
-* **Multi-SKU Pipeline:** The system is designed to process a list of SKU-Channel-Unit combinations provided via a CSV file.
+* **Multi-SKU Pipeline:** The system is designed to process a list of SKU-Channel-Unit combinations provided via a **Google Sheet** (specified by Sheet ID and Tab Name).
 * **Gross Sales Focus:** Negative sales rows are removed; the forecast represents gross sales potential, not net sales.
 * **Minimum Data:** ~6 months of daily history (translating to ~24+ weeks) is deemed sufficient for initial model training per combination.
 * **Future Regressors:** Assumes future promotion plans are available or reasonable assumptions can be made. Future weather data requires a separate forecast or assumption. Uses actual promo values from validation period for improved short-term forecast accuracy.

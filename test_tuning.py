@@ -10,6 +10,7 @@ import logging
 import os
 import pickle
 from google.cloud import bigquery
+from google.oauth2 import service_account
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 
@@ -44,8 +45,20 @@ def prepare_test_data(sku_id="П-00006477", channel="TF", unit="Пермь"):
     """
     logger.info(f"Preparing test data for SKU_ID={sku_id}, Channel={channel}, Unit={unit}")
     
-    # Initialize BigQuery client
-    client = bigquery.Client(project="eztech-442521")
+    # Initialize BigQuery client using service account credentials
+    project_id = "eztech-442521"
+    # Updated path to the identified BQ credentials file
+    credentials_path = ".secrets/eztech-442521-bigquery.json" 
+    try:
+        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+        client = bigquery.Client(project=project_id, credentials=credentials)
+        logger.info(f"Initialized BigQuery client using {credentials_path}")
+    except FileNotFoundError:
+        logger.error(f"BigQuery credentials file not found at {credentials_path}. Please check the path.")
+        return None, None, None
+    except Exception as e:
+        logger.error(f"Error initializing BigQuery client: {e}")
+        return None, None, None
     
     # Fetch data
     start_date = "2023-01-01"

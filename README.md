@@ -1,21 +1,24 @@
 # Distributor Forecasting 2.0
 
-A forecasting system to predict weekly gross sales volume for multiple SKU-Channel-Unit combinations using FB Prophet. It features a batch processing pipeline with parallel execution capabilities.
+A forecasting system to predict weekly gross sales volume for multiple SKU-Channel-Unit combinations using FB Prophet. It features a batch processing pipeline that reads combination inputs from **Google Sheets** and supports parallel execution.
 
-## Important Note (2025-04-02)
+## Important Note (2025-04-05)
 
 **Python Environment**: Always use the specific Python path for this project:
 ```bash
 /Users/vandit/miniconda3/envs/fbprophet-env/bin/python
 ```
 
+**Google Sheets Credentials**: Ensure your service account JSON key file for Google Sheets API access is placed at `.secrets/eztech-442521-sheets.json` or provide the path using the `--gsheet_creds_path` argument.
+
 Example command:
 ```bash
-/Users/vandit/miniconda3/envs/fbprophet-env/bin/python run_all_skus.py --combinations_file data/sku_combinations.csv
+/Users/vandit/miniconda3/envs/fbprophet-env/bin/python run_all_skus.py --combinations_gsheet_id YOUR_SHEET_ID_HERE
 ```
 
-## Recent Updates (2025-04-02)
+## Recent Updates (2025-04-05)
 
+- **Input Source Changed**: The pipeline now reads SKU-Channel-Unit combinations directly from a specified Google Sheet instead of a CSV file. Requires `google-api-python-client` and `google-auth-oauthlib` libraries.
 - **Model Accuracy Improvement**: Implemented using actual promotional values from validation data instead of fixed assumptions. This resulted in significantly better forecast accuracy:
   - Average MAE: 237.90
   - Average RMSE: 285.19
@@ -98,12 +101,9 @@ python setup.py
   - `hyperparameter_tuning.py` - Module for Prophet CV tuning
   - `data_loader.py` - Module for fetching sales data
   - `weather_handler.py` - Module for fetching weather data
-  - `sku_combination_loader.py` - Module for loading and filtering SKU combinations
+  - `sku_combination_loader.py` - Module for loading SKU combinations from Google Sheets and filtering them.
 - `test_tuning.py` - Standalone script for testing hyperparameter tuning
-- `/data` - Data files (if any stored locally, otherwise fetched from BQ)
-  - `sku_combinations.csv` - Example file containing SKU-Channel-Unit combinations
-  - `/raw` - Original unmodified data (if applicable)
-  - `/processed` - Cleaned and processed data (if applicable)
+- `/data` - **DEPRECATED for input combinations.** Was used for `sku_combinations.csv`.
 - `/output` - Generated files (model pickles, forecasts, plots, CV results)
   - `/forecasts` - SKU-specific forecasts organized by unit and channel
 - `/sql` - SQL queries for data extraction
@@ -111,15 +111,19 @@ python setup.py
 
 ## Running Multiple SKU Forecasts
 
-Use the `run_all_skus.py` script to process multiple SKU-Channel-Unit combinations:
+Use the `run_all_skus.py` script to process multiple SKU-Channel-Unit combinations read from a Google Sheet:
 
 ```bash
-python run_all_skus.py --combinations_file data/sku_combinations.csv
+/Users/vandit/miniconda3/envs/fbprophet-env/bin/python run_all_skus.py --combinations_gsheet_id YOUR_SHEET_ID_HERE
 ```
+
+Replace `YOUR_SHEET_ID_HERE` with the actual ID of your Google Sheet (e.g., `1BTCZsliXDbEsj9XOdCfETxFhCs2LdrrDko0UQu9w-PQ`).
 
 ### Command-Line Arguments
 
-- `--combinations_file`: (Required) Path to CSV file with SKU_ID, Channel, Unit columns
+- `--combinations_gsheet_id`: (Required) Google Sheet ID containing the SKU_ID, Channel, Unit columns.
+- `--combinations_gsheet_name`: Name of the tab in the Google Sheet (default: "Target").
+- `--gsheet_creds_path`: Path to the Google Sheets service account credentials JSON file (default: `.secrets/eztech-442521-sheets.json`).
 - `--output_dir`: Base output directory (default: "output")
 - `--project_id`: Google Cloud Project ID (default: "eztech-442521")
 - `--dataset_id`: BigQuery dataset ID (default: "rich")
@@ -137,16 +141,16 @@ python run_all_skus.py --combinations_file data/sku_combinations.csv
 
 ### Sample Usage for Testing
 
-Test with a few combinations:
+Test with the first 3 combinations from the Google Sheet:
 
 ```bash
-python run_all_skus.py --combinations_file data/sku_combinations.csv --max_combinations 3
+/Users/vandit/miniconda3/envs/fbprophet-env/bin/python run_all_skus.py --combinations_gsheet_id YOUR_SHEET_ID_HERE --max_combinations 3
 ```
 
-Run for a specific SKU across all units and channels:
+Run for a specific SKU (П-00006477) found in the Google Sheet:
 
 ```bash
-python run_all_skus.py --combinations_file data/sku_combinations.csv --specific_sku "П-00006477"
+/Users/vandit/miniconda3/envs/fbprophet-env/bin/python run_all_skus.py --combinations_gsheet_id YOUR_SHEET_ID_HERE --specific_sku "П-00006477"
 ```
 
 ## External Data Sources
