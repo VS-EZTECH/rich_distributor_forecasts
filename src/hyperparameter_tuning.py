@@ -84,7 +84,7 @@ def get_optimized_param_grid(time_series_df=None):
     return param_grid
 
 def evaluate_params(params, train_df, prophet_holidays, initial_period, period_interval, cv_horizon, 
-                    weather_regressors, use_lag_feature, rolling_window):
+                    weather_regressors, use_lag_feature, rolling_window, enable_yearly_seasonality_for_tuning):
     """
     Evaluate a single parameter combination and return the results.
     
@@ -98,6 +98,7 @@ def evaluate_params(params, train_df, prophet_holidays, initial_period, period_i
         weather_regressors (list): List of weather regressor columns
         use_lag_feature (bool): Whether to use lagged target as regressor
         rolling_window (int): Rolling window size for metrics calculation
+        enable_yearly_seasonality_for_tuning (bool): Whether to enable yearly seasonality
         
     Returns:
         dict: Dictionary with evaluation results
@@ -107,7 +108,7 @@ def evaluate_params(params, train_df, prophet_holidays, initial_period, period_i
         prophet_kwargs = {k: v for k, v in params.items()}
         m_tune = Prophet(
             weekly_seasonality=True,
-            yearly_seasonality=True,
+            yearly_seasonality=enable_yearly_seasonality_for_tuning,
             daily_seasonality=False,
             holidays=prophet_holidays,
             **prophet_kwargs
@@ -202,6 +203,11 @@ def tune_hyperparameters(train_df, prophet_holidays, param_grid=None, initial_pe
     """
     logger.info("\nStarting Hyperparameter Tuning (Prophet Cross-Validation)... ")
     
+    # Determine if yearly seasonality should be enabled based on full training data duration
+    training_duration_days = (train_df['ds'].max() - train_df['ds'].min()).days
+    enable_yearly_seasonality_for_tuning = training_duration_days >= 365
+    logger.info(f"Overall training data duration: {training_duration_days} days. Yearly seasonality for tuning: {enable_yearly_seasonality_for_tuning}")
+    
     # Set default parameter grid if not provided
     if param_grid is None:
         if optimize_param_grid:
@@ -251,7 +257,8 @@ def tune_hyperparameters(train_df, prophet_holidays, param_grid=None, initial_pe
                 cv_horizon, 
                 weather_regressors, 
                 use_lag_feature, 
-                rolling_window
+                rolling_window,
+                enable_yearly_seasonality_for_tuning
             ) 
             for params in all_params
         ]

@@ -256,20 +256,27 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         else:
             first_validation_week_ds = validation_start_dt + timedelta(days=(6 - validation_start_dt.weekday()))
             
-        train_df = df_weekly[df_weekly['ds'] < first_validation_week_ds]
-        validation_df = df_weekly[df_weekly['ds'] >= first_validation_week_ds]
-        
-        logger.info(f"Training set: {len(train_df)} weeks, Validation set: {len(validation_df)} weeks")
-        
-        # Ensure we have enough training data (at least 3x validation period)
-        if len(train_df) < 3 * len(validation_df):
-            result['Status'] = 'Skipped: Insufficient Training Data'
-            result['error_message'] = f"Insufficient training data: {len(train_df)} weeks training, need at least {3 * len(validation_df)}"
-            logger.warning(result['error_message'])
-            return result
-        
+        train_df = df_weekly[df_weekly['ds'] < validation_start_date].copy()
+        validation_df = df_weekly[df_weekly['ds'] >= validation_start_date].copy()
+
+        result['validation_start'] = validation_start_date # Store validation start date
+
+        if train_df.empty or len(train_df) < 10: # Need some minimum data for training
+             result['Status'] = 'Skipped: Insufficient Training Data'
+             result['error_message'] = f"Insufficient training data after splitting: {len(train_df)} weeks"
+             logger.warning(result['error_message'])
+             return result
+
+        logger.info(f"Train data: {len(train_df)} weeks ({train_df['ds'].min().date()} to {train_df['ds'].max().date()})")
+        logger.info(f"Validation data: {len(validation_df)} weeks ({validation_df['ds'].min().date()} to {validation_df['ds'].max().date()})")
+
+        # Determine if yearly seasonality should be enabled
+        training_duration_days = (train_df['ds'].max() - train_df['ds'].min()).days
+        enable_yearly_seasonality = training_duration_days >= 365
+        logger.info(f"Training data duration: {training_duration_days} days. Yearly seasonality enabled: {enable_yearly_seasonality}")
+
         # 7. Hyperparameter tuning
-        logger.info("Starting hyperparameter tuning with expanded parameter grid")
+        logger.info("Starting hyperparameter tuning...")
         
         # Define CV settings - adjusted based on available data
         initial_weeks = max(len(train_df) - 8, int(len(train_df) * 0.6))  # Use at least 60% of data for initial training
@@ -300,15 +307,18 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         result['best_params'] = str(best_params)
         
         # 8. Final model training
-        logger.info(f"Training final model with parameters: {best_params}")
-        
-        final_model = Prophet(**best_params, 
-                            weekly_seasonality=True, 
-                            yearly_seasonality=True, 
-                            daily_seasonality=False, 
-                            holidays=prophet_holidays)
-                            
-        # Add regressors to the final model
+        logger.info(f"Training final model with best params: {best_params}")
+        final_model = Prophet(
+            holidays=prophet_holidays,
+            changepoint_prior_scale=best_params['cps'],
+            holidays_prior_scale=best_params['hps'],
+            seasonality_prior_scale=best_params['sps'],
+            weekly_seasonality=True,  # Always assume weekly
+            daily_seasonality=False, # Data is weekly
+            yearly_seasonality=enable_yearly_seasonality # Dynamically set based on data duration
+        )
+
+        # Add regressors used during training/tuning
         final_model.add_regressor('Promo_discount_perc')
         final_model.add_regressor('is_promo')
         for reg in weather_regressors:
