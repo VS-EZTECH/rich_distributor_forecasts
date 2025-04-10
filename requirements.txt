@@ -11,3 +11,6 @@ requests-cache
 google-api-python-client
 google-auth-oauthlib
 google-cloud-storage>=2.0.0,<3.0.0
+
+# Added for BigQuery pandas integration
+db-dtypes
