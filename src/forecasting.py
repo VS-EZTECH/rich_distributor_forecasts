@@ -19,13 +19,18 @@ from src.data_loader import fetch_sales_data
 from src.weather_handler import fetch_weather_data, fetch_forecast_weather_data
 from src.hyperparameter_tuning import tune_hyperparameters
 
+# Define log file path and ensure directory exists
+log_dir = 'output'
+log_file = os.path.join(log_dir, 'forecasting_process.log')
+os.makedirs(log_dir, exist_ok=True) # <-- Create directory if it doesn't exist
+
 # Create logger for this module
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('output/forecasting_process.log')
+        logging.FileHandler(log_file) # <-- Use variable for path
     ]
 )
 logger = logging.getLogger('forecasting')
