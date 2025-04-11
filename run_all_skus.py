@@ -2,7 +2,7 @@ import os
 import argparse
 import pandas as pd
 from datetime import datetime
-from google.cloud import bigquery
+from google.cloud import bigquery, storage
 from google.oauth2 import service_account
 import logging
 import concurrent.futures
@@ -15,15 +15,22 @@ from src.sku_combination_loader import filter_combinations, load_sku_combination
 from src.forecasting import process_combination
 
 # Configure logging
+run_log_dir = 'output'
+run_log_file = os.path.join(run_log_dir, 'run_all_skus.log')
+os.makedirs(run_log_dir, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('output/run_all_skus.log')
+        logging.FileHandler(run_log_file)
     ]
 )
 logger = logging.getLogger('run_all_skus')
+
+# Define path for the other log file (relative to script execution)
+forecasting_log_file = os.path.join(run_log_dir, 'forecasting_process.log')
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -260,7 +267,66 @@ def main():
         if not success_df.empty:
             avg_metrics = success_df[numeric_cols].mean()
             logger.info(f"Average metrics for successful runs:\n{avg_metrics}")
-        
+
+        # --- Upload Logs and Results to GCS Staging Bucket ---
+        logger.info("Attempting to upload results and logs to GCS staging bucket...")
+        staging_bucket_name = "eztech-442521-rich-distributor-forecast-staging"
+
+        def upload_to_gcs(local_path, destination_blob_name, bucket_name):
+            """Helper function to upload a file to GCS."""
+            if not os.path.exists(local_path):
+                logger.warning(f"Local file not found, skipping GCS upload: {local_path}")
+                return
+            try:
+                storage_client = storage.Client()
+                bucket = storage_client.bucket(bucket_name)
+                blob = bucket.blob(destination_blob_name)
+                blob.upload_from_filename(local_path)
+                logger.info(f"Successfully uploaded {local_path} to gs://{bucket_name}/{destination_blob_name}")
+            except Exception as upload_error:
+                logger.error(f"Failed to upload {local_path} to GCS: {upload_error}")
+
+        # 1. Rename log files with timestamp
+        ts_run_log_file = os.path.join(run_log_dir, f'run_all_skus_{timestamp}.log')
+        ts_forecasting_log_file = os.path.join(run_log_dir, f'forecasting_process_{timestamp}.log')
+
+        try:
+            if os.path.exists(run_log_file):
+                os.rename(run_log_file, ts_run_log_file)
+                logger.info(f"Renamed {run_log_file} to {ts_run_log_file}")
+            else:
+                logger.warning(f"Original log file not found: {run_log_file}")
+                ts_run_log_file = None # Set to None if rename failed
+        except Exception as rename_err:
+            logger.error(f"Failed to rename {run_log_file}: {rename_err}")
+            ts_run_log_file = None
+
+        try:
+            if os.path.exists(forecasting_log_file):
+                os.rename(forecasting_log_file, ts_forecasting_log_file)
+                logger.info(f"Renamed {forecasting_log_file} to {ts_forecasting_log_file}")
+            else:
+                 logger.warning(f"Original log file not found: {forecasting_log_file}")
+                 ts_forecasting_log_file = None # Set to None if rename failed
+        except Exception as rename_err:
+            logger.error(f"Failed to rename {forecasting_log_file}: {rename_err}")
+            ts_forecasting_log_file = None
+
+        # 2. Upload results CSV
+        results_base_name = os.path.basename(results_filename)
+        upload_to_gcs(results_filename, f"results/{results_base_name}", staging_bucket_name)
+
+        # 3. Upload renamed run_all_skus log
+        if ts_run_log_file:
+             run_log_base_name = os.path.basename(ts_run_log_file)
+             upload_to_gcs(ts_run_log_file, f"logs/{run_log_base_name}", staging_bucket_name)
+
+        # 4. Upload renamed forecasting log
+        if ts_forecasting_log_file:
+            forecast_log_base_name = os.path.basename(ts_forecasting_log_file)
+            upload_to_gcs(ts_forecasting_log_file, f"logs/{forecast_log_base_name}", staging_bucket_name)
+        # -----------------------------------------------------
+
     except Exception as e:
         logger.error(f"Error in main process: {e}")
         logger.debug(traceback.format_exc())
