@@ -10,9 +10,11 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import pickle
 import logging
 import traceback
+from pathlib import Path
 
 # Import storage client
 from google.cloud import storage
+from google.oauth2 import service_account
 
 # Import functions from other modules - fix the imports to reference src directory
 from src.data_loader import fetch_sales_data
@@ -61,7 +63,7 @@ def create_output_directory(base_dir, unit, channel):
 
 def process_combination(client, project_id, dataset_id, sku_id, channel, unit, 
                         weather_lat, weather_lon, start_date=None, end_date=None,
-                        validation_days=28, base_output_dir='output'):
+                        validation_days=14, base_output_dir='output'):
     """
     Process a single SKU-Channel-Unit combination through the entire forecasting pipeline.
     
@@ -286,31 +288,25 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         # 7. Hyperparameter tuning
         logger.info("Starting hyperparameter tuning...")
         
-        # Define CV settings - adjusted based on available data
-        initial_weeks = max(len(train_df) - 8, int(len(train_df) * 0.6))  # Use at least 60% of data for initial training
-        initial_period = f'{initial_weeks} W'
-        period_interval = '4 W'
-        cv_horizon = '4 W'
-        
+        # Define CV settings based on validation period (convert days to weeks)
+        initial_period = str(train_df.shape[0] - 4) + ' W' # Start CV after first year roughly
+        period_interval = '2 W'
+        cv_horizon = '2 W'
+
         logger.info(f"Starting hyperparameter tuning with CV settings: initial={initial_period}, period={period_interval}, horizon={cv_horizon}")
         
-        best_params, df_cv_results = tune_hyperparameters(
-            train_df=train_df,
-            prophet_holidays=prophet_holidays,
-            param_grid=None,  # Use default expanded parameter grid from tuning module
+        best_params, cv_results_df = tune_hyperparameters(
+            train_df,
+            prophet_holidays,
             initial_period=initial_period,
             period_interval=period_interval,
             cv_horizon=cv_horizon,
-            weather_regressors=weather_regressors,
-            use_lag_feature=True,
-            rolling_window=3,  # Increase rolling window for smoother metrics
-            optimize_param_grid=True,  # Use data-driven parameter grid optimization
-            max_workers=4  # Use 4 workers for parallel hyperparameter tuning
+            weather_regressors=weather_regressors
         )
         
         # Save CV results
-        if df_cv_results is not None and not df_cv_results.empty:
-            df_cv_results.to_csv(f"{output_dir}/cv_tuning_results_{sku_id}.csv", index=False)
+        if cv_results_df is not None and not cv_results_df.empty:
+            cv_results_df.to_csv(f"{output_dir}/cv_tuning_results_{sku_id}.csv", index=False)
         
         result['best_params'] = str(best_params)
         
@@ -351,7 +347,16 @@ def process_combination(client, project_id, dataset_id, sku_id, channel, unit,
         
         # --- Upload model to GCS --- 
         try:
-            gcs_client = storage.Client()
+            # Use explicit credentials from the environment variable
+            credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+            if credentials_path:
+                credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                gcs_client = storage.Client(credentials=credentials)
+                logger.info(f"Using credentials from {credentials_path} for GCS upload")
+            else:
+                gcs_client = storage.Client()
+                logger.info("Using application default credentials for GCS upload")
+                
             bucket_name = "eztech-442521-rich-distributor-forecast-models" # Use the correct bucket name
             # Ensure correct GCS path structure: Unit/Channel/SKU_ID.pkl
             destination_blob_name = f"{unit}/{channel}/{sku_id}.pkl"

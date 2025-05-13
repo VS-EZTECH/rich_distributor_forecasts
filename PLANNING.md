@@ -2,7 +2,7 @@
 
 ## 1. Project Objective
 
-To develop and validate a forecasting system predicting **weekly gross sales volume** for **multiple SKU-Channel-Unit combinations**. The forecast horizon is **4 weeks (28 days)**. The system uses a batch processing pipeline to handle different combinations efficiently.
+To develop and validate a forecasting system predicting **weekly gross sales volume** for **multiple SKU-Channel-Unit combinations**. The forecast horizon is **2 weeks (14 days)**. The system uses a batch processing pipeline to handle different combinations efficiently.
 
 ## 2. Input Data
 
@@ -55,7 +55,7 @@ The solution employs individual time series models (one per combination) using F
     * **Improved Regressor Values (2025-04-02):** Modified the pipeline to use actual promotional values from validation data instead of fixed assumptions, resulting in significantly improved forecasting accuracy (average WAPE: 55.0%, average sMAPE: 62.3%).
 
 5.  **Evaluation:**
-    * Compare **weekly** forecasts against actual **weekly** sales data from the held-out validation set.
+    * Compare **weekly** forecasts against actual **weekly** sales data from the held-out validation set (default 14 days).
     * Calculate key performance indicators (KPIs): WAPE (primary), MAE, RMSE, sMAPE.
     * Analyze model performance. *Update (YYYY-MM-DD): Manual parameter setting (`{'cps': 0.5, 'hps': 0.1, 'sps': 10.0}`) yielded significantly better validation results (MAE ~158, sMAPE ~0.71) than the current automated tuning best (MAE ~218, sMAPE ~1.17). This suggests potential improvements needed in the tuning strategy or parameter grid.*
 

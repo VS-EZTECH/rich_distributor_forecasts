@@ -7,6 +7,7 @@ from google.oauth2 import service_account
 import logging
 import concurrent.futures
 import traceback
+import multiprocessing as mp
 
 # Import the combination loader functions
 from src.sku_combination_loader import filter_combinations, load_sku_combinations_from_gsheet
@@ -34,37 +35,37 @@ forecasting_log_file = os.path.join(run_log_dir, 'forecasting_process.log')
 
 def parse_arguments():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Run the forecasting pipeline for multiple SKU-Channel-Unit combinations.")
+    parser = argparse.ArgumentParser(description="Run Prophet forecasting pipeline for multiple SKU-Channel-Unit combinations.")
     
     # Input source arguments (Google Sheet only)
     parser.add_argument("--combinations_gsheet_id", type=str, required=True,
-                           help="Google Sheet ID for the combinations.")
+                           help="Google Sheet ID containing SKU_ID, Channel, Unit columns.")
     parser.add_argument("--combinations_gsheet_name", type=str, default="Target",
-                      help="Name of the tab in the Google Sheet (default: Target).")
+                      help="Name of the tab/sheet in the Google Sheet (default: 'Target').")
     parser.add_argument("--gsheet_creds_path", type=str, default=".secrets/eztech-442521-sheets.json",
-                      help="Path to the Google Sheets service account credentials JSON file (default: .secrets/eztech-442521-sheets.json).")
+                      help="Path to Google Sheets service account credentials JSON file.")
 
     # Added BQ Creds Path argument
     parser.add_argument("--bq_creds_path", type=str, default=".secrets/eztech-442521-bigquery.json",
                       help="Path to the BigQuery service account credentials JSON file (default: .secrets/eztech-442521-bigquery.json).")
 
     parser.add_argument("--output_dir", type=str, default="output",
-                      help="Base directory for outputs.")
+                      help="Base directory to save outputs (models, plots, metrics).")
     
     parser.add_argument("--project_id", type=str, default="eztech-442521",
-                      help="Google Cloud Project ID.")
+                      help="Google Cloud Project ID for BigQuery.")
     
     parser.add_argument("--dataset_id", type=str, default="rich",
                       help="BigQuery dataset ID.")
     
     parser.add_argument("--start_date", type=str, default=None,
-                      help="Optional start date for data retrieval (YYYY-MM-DD). If not provided, all available data will be used.")
+                      help="Optional global start date (YYYY-MM-DD) for data fetching.")
     
     parser.add_argument("--end_date", type=str, default=None,
-                      help="Optional end date for data retrieval (YYYY-MM-DD). If not provided, all available data will be used.")
+                      help="Optional global end date (YYYY-MM-DD) for data fetching.")
     
-    parser.add_argument("--validation_days", type=int, default=28,
-                      help="Number of days for validation period. Default is 28 (4 weeks).")
+    parser.add_argument("--validation_days", type=int, default=14,
+                      help="Number of days for validation period. Default is 14 (2 weeks).")
     
     parser.add_argument("--weather_latitude", type=float, default=58.0,
                       help="Latitude for weather data (default: 58.0 - Perm, Russia).")
@@ -278,7 +279,16 @@ def main():
                 logger.warning(f"Local file not found, skipping GCS upload: {local_path}")
                 return
             try:
-                storage_client = storage.Client()
+                # Use explicit credentials from the environment variable
+                credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+                if credentials_path:
+                    credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                    storage_client = storage.Client(credentials=credentials)
+                    logger.info(f"Using credentials from {credentials_path} for GCS upload")
+                else:
+                    storage_client = storage.Client()
+                    logger.info("Using application default credentials for GCS upload")
+                
                 bucket = storage_client.bucket(bucket_name)
                 blob = bucket.blob(destination_blob_name)
                 blob.upload_from_filename(local_path)

@@ -176,7 +176,7 @@ def evaluate_params(params, train_df, prophet_holidays, initial_period, period_i
         return result_entry, error_msg  # Return result and error message
 
 def tune_hyperparameters(train_df, prophet_holidays, param_grid=None, initial_period=None, 
-                         period_interval='4 W', cv_horizon='4 W', weather_regressors=None, 
+                         period_interval='2 W', cv_horizon='2 W', weather_regressors=None, 
                          use_lag_feature=True, rolling_window=1, optimize_param_grid=True, max_workers=4):
     """
     Performs hyperparameter tuning using Prophet's cross-validation.

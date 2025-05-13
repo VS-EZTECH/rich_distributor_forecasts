@@ -167,7 +167,7 @@ def prepare_test_data(sku_id="П-00006477", channel="TF", unit="Пермь"):
     prophet_holidays['upper_window'] = 0
     
     # Data splitting - use last 4 weeks as validation
-    validation_days = 28
+    validation_days = 14
     historical_end = df_weekly['ds'].max().date()
     validation_start = historical_end - timedelta(days=validation_days-1)
     validation_start_date = validation_start.strftime("%Y-%m-%d")
@@ -211,10 +211,11 @@ def run_tuning_test():
     logger.info(f"Optimized parameter grid prioritizes certain parameters based on data characteristics")
     
     # Define CV settings
-    initial_weeks = max(len(train_df) - 8, int(len(train_df) * 0.6))
-    initial_period = f'{initial_weeks} W'
-    period_interval = '4 W' 
-    cv_horizon = '4 W'
+    initial_period = str(train_df.shape[0] - 4) + ' W'
+    period_interval = '2 W'
+    cv_horizon = '2 W'
+    
+    logger.info(f"Starting hyperparameter tuning with CV settings: initial={initial_period}, period={period_interval}, horizon={cv_horizon}")
     
     # 3. Run the tuning with optimized grid
     logger.info("Running hyperparameter tuning with optimized grid...")

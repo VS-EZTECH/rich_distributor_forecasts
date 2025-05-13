@@ -11,8 +11,8 @@ This checklist tracks the tasks outlined in the project plan for the initial **s
     * `[x]` (If using weather API) Secure necessary API keys/credentials. (Using Open-Meteo - No key required)
 * `[x]` **2. Define Scope & Timeframes:**
     * `[x]` **Select the single target SKU ID for initial development.** (Selected SKU_ID: 'П-00006477')
-    * `[x]` Define the exact historical data range needed for this SKU (min 6 months training + 28 days validation). (Date range: 2023-12-29 to 2025-03-29)
-    * `[x]` Set specific start/end dates for training and validation periods. (Training: 2023-12-29 to 2025-03-01, Validation: 2025-03-02 to 2025-03-29)
+    * `[x]` Define the exact historical data range needed for this SKU (min 6 months training + 14 days validation). (Date range: 2023-12-29 to 2025-03-29)
+    * `[x]` Set specific start/end dates for training and validation periods. (Training: 2023-12-29 to 2025-03-15, Validation: 2025-03-16 to 2025-03-29)
 * `[x]` **3. Data Retrieval:**
     * `[x]` Write and test SQL query to fetch **Daily** Sales and Promotion data for the **single target SKU**, including date scaffold.
     * `[x]` Handle NULLs appropriately in SQL (e.g., `COALESCE`).
@@ -41,7 +41,7 @@ This checklist tracks the tasks outlined in the project plan for the initial **s
     * `[x]` Fit the model to the **weekly** `train_df` (`m.fit`), handling potential errors.
 * `[x]` **7. Hyperparameter Tuning (Single SKU, Weekly):** (Completed 2025-03-31, Refactored 2025-04-01)
     * `[x]` Define a parameter grid for tuning (e.g., `changepoint_prior_scale`, `seasonality_prior_scale`, `holidays_prior_scale`).
-    * `[x]` Use `diagnostics.cross_validation` on the **weekly** `train_df` with appropriate `initial`, `period`, `horizon` settings (e.g., horizon = '4 W').
+    * `[x]` Use `diagnostics.cross_validation` on the **weekly** `train_df` with appropriate `initial`, `period`, `horizon` settings (e.g., horizon = '2 W').
     * `[x]` Use `diagnostics.performance_metrics` to evaluate results across the parameter grid based on a chosen metric (sMAPE).
     * `[x]` Identify the best combination of hyperparameters. Document the results.
     * `[x]` **Refactoring (2025-04-01):** Moved tuning logic into `src/hyperparameter_tuning.py` module.
@@ -50,13 +50,13 @@ This checklist tracks the tasks outlined in the project plan for the initial **s
     * `[x]` Add the same holidays and regressors as in Step 6.
     * `[x]` Re-fit this tuned model to the entire **weekly** `train_df`.
     * `[x]` Store the final, tuned model object.
-* `[x]` **9. Generate Future Predictions (4 weeks):** (Completed 2025-04-01)
+* `[x]` **9. Generate Future Predictions (2 weeks):** (Completed 2025-04-01)
     * `[x]` Get the final tuned model (from Step 8).
-    * `[x]` Create the `future_df` for the 4-week forecast horizon **using weekly frequency** (`freq='W-SUN'`).
+    * `[x]` Create the `future_df` for the 2-week forecast horizon **using weekly frequency** (`freq='W-SUN'`).
     * `[x]` Populate `future_df` with values for all regressors for the future **weeks**.
     * `[x]` **Added (2025-04-01):** Implemented iterative prediction loop to handle `y_lag1` regressor for future dates.
     * `[x]` Generate **weekly** predictions using `m.predict` on the tuned model.
-    * `[x]` Filter the forecast output to keep only the 4 future **weeks**.
+    * `[x]` Filter the forecast output to keep only the 2 future **weeks**.
 * `[x]` **10. Post-Process Predictions:** (Completed 2025-04-01)
     * `[-]` ~~Apply inverse transformation (`np.expm1`)~~ **(N/A - Log transform not used).**
     * `[x]` Clip final `yhat` values at zero.
@@ -137,7 +137,7 @@ This checklist tracks the tasks outlined in the project plan for the initial **s
     * `[x]` Generate predictions (`yhat`, `yhat_lower`, `yhat_upper`) using the log-transformed model.
     * `[x]` Apply inverse transformation (`np.expm1`) to `yhat`, `yhat_lower`, `yhat_upper`.
     * `[x]` Clip inverse-transformed `yhat` at zero.
-    * `[x]` Filter forecast to keep only the 4 future weeks.
+    * `[x]` Filter forecast to keep only the 2 future weeks.
 * `[x]` **20. Evaluate Log Transformation Approach:**
     * `[x]` Prepare validation actuals (original scale `y` from `validation_df`).
     * `[x]` Merge inverse-transformed weekly forecasts (from Step 19) with original-scale actuals.
@@ -162,7 +162,7 @@ This checklist tracks the tasks outlined in the project plan for the initial **s
     *   `[x]` **22c. Determine Date Range & Check Data:**
         *   For the fetched data of *each* combination:
             *   Find the minimum (`min_date`) and maximum (`max_date`) sales dates.
-            *   Check if the duration (`max_date` - `min_date`) meets the minimum requirement (e.g., > 28 weeks total for train+validation).
+            *   Check if the duration (`max_date` - `min_date`) meets the minimum requirement (e.g., > 20 weeks total for train+validation).
             *   Log and mark combinations with insufficient data to be skipped.
 
 *   `[x]` **23. Ensure Pipeline Reusability:**

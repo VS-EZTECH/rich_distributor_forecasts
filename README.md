@@ -138,6 +138,11 @@ Replace `YOUR_SHEET_ID_HERE` with the actual ID of your Google Sheet (e.g., `1BT
 - `--specific_channel`: Optional filter for a specific Channel
 - `--parallel`: Run processing in parallel
 - `--workers`: Number of worker processes when parallel=True (default: 4)
+- `--end_date`: Optional global end date (YYYY-MM-DD) for data fetching.
+- `--validation_days`: Days for validation period (default: 14)
+- `--weather_latitude`: Latitude for weather data (default: 58.0 - Perm, Russia)
+- `--weather_longitude`: Longitude for weather data (default: 56.3 - Perm, Russia)
+- `--max_combinations`: Optional limit on combinations to process
 
 ### Sample Usage for Testing
 
@@ -163,8 +168,8 @@ This project uses Facebook Prophet for time series forecasting with the followin
 
 1. Data acquisition from BigQuery (daily)
 2. Feature engineering and **weekly aggregation**
-3. Model training and hyperparameter tuning (**weekly data**)
-4. Prediction generation (**weekly**)
-5. Evaluation and analysis (**weekly**)
+3. Model training and hyperparameter tuning (**weekly data**, default 14-day validation/horizon)
+4. Prediction generation (**weekly**, default 14-day horizon)
+5. Evaluation and analysis (**weekly**, default 14-day validation)
 
 For more details, refer to `PLANNING.md`. 
